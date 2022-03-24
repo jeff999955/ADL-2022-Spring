@@ -12,3 +12,8 @@ class MultipleChoiceModel(nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
+
+    def freeze_bert(self):
+        print('Freezing BERT')
+        for param in self.model.bert.parameters():
+            param.requires_grad = False

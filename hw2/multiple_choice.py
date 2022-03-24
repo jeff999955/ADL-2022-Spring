@@ -3,7 +3,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import torch
 from torch import nn, autocast
-from transformers import AutoConfig, AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer, get_cosine_schedule_with_warmup
 from dataset import MultipleChoiceDataset
 from torch.utils.data import DataLoader
 from torch.cuda.amp import GradScaler
@@ -17,7 +17,7 @@ import wandb
 
 log_time = 3
 
-def train(args, data_loader, model, optimizer, scaler):
+def train(args, data_loader, model, optimizer, scaler, scheduler = None):
     global log_time
     train_loss = []
     train_accs = []
@@ -38,10 +38,14 @@ def train(args, data_loader, model, optimizer, scaler):
         
         scaler.scale(loss).backward()
 
+
         if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
             scaler.step(optimizer)
             scaler.update()
+            if scheduler is not None:
+                scheduler.step()
             optimizer.zero_grad()
+
 
         train_loss.append(loss.item())
         train_accs.append(acc)
@@ -111,13 +115,15 @@ def main(args):
         shuffle=False,
         batch_size=args.batch_size,
     )
+    warmup_step = int(0.1 * len(train_loader)) // args.accu_step
+    scheduler = get_cosine_schedule_with_warmup(optimizer, warmup_step, args.num_epoch * len(train_loader) - warmup_step)
 
 
     best_loss = float("inf")
 
     for epoch in range(starting_epoch, args.num_epoch + 1):
         print(f"Epoch {epoch}:")
-        train_loss, train_acc = train(args, train_loader, model, optimizer, scaler)
+        train_loss, train_acc = train(args, train_loader, model, optimizer, scaler, scheduler)
         valid_loss, valid_acc = validate(valid_loader, model)
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")
         print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
