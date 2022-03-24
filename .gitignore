@@ -1,4 +1,9 @@
 .DS_Store
+
+# data and checkpoint
+*.dat
+*.ckpt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
