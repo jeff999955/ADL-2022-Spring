@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import random
 
+
 def same_seeds(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -12,9 +13,11 @@ def same_seeds(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     import sys
+
     file = sys.argv[1]
 
-    ckpt = torch.load(file, map_location = "cpu")
+    ckpt = torch.load(file, map_location="cpu")
     print(ckpt["epoch"])

@@ -3,15 +3,15 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import torch
 from torch import nn, autocast
-from transformers import AutoConfig, AutoTokenizer, get_cosine_schedule_with_warmup
-from dataset import MultipleChoiceDataset
+from transformers import AdamW, AutoConfig, AutoTokenizer, get_cosine_schedule_with_warmup
+from dataset import QuestionAnsweringDataset
 from torch.utils.data import DataLoader
 from torch.cuda.amp import GradScaler
 
 from tqdm import tqdm
 
 from utils import same_seeds
-from model import MultipleChoiceModel
+from model import QuestionAnsweringModel
 
 import wandb
 
@@ -26,17 +26,27 @@ def train(args, data_loader, model, optimizer, scaler, scheduler=None):
     model.train()
 
     for idx, batch in enumerate(tqdm(data_loader)):
-        ids, input_ids, attention_masks, token_type_ids, labels = batch
+        ids, inputs = batch
+        input_ids = inputs["input_ids"].to(args.device)
+        token_type_ids = inputs["token_type_ids"].to(args.device)
+        attention_mask = inputs["attention_mask"].to(args.device)
+        start_positions = inputs["start_positions"].to(args.device)
+        end_positions = inputs["end_positions"].to(args.device)
+
         with autocast(device_type="cpu" if args.device == "cpu" else "cuda"):
-            loss, logits = model(
+            qa_output = model(
                 input_ids=input_ids,
                 attention_mask=attention_masks,
                 token_type_ids=token_type_ids,
-                labels=labels,
+                start_positions = start_positions,
+                end_positions = end_positions
             )
-            acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
+            print(qa_output.loss)
+            print(qa_output.start_logits)
+            print(qa_output.end_logits)
+            # acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
             loss = loss / args.accu_step
-
+        exit()
         scaler.scale(loss).backward()
 
         if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
@@ -81,28 +91,28 @@ def validate(data_loader, model):
 def main(args):
     same_seeds(args.seed)
 
-    config = AutoConfig.from_pretrained(args.model_name, return_dict=False)
+    config = AutoConfig.from_pretrained(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, config=config, model_max_length=512, use_fast=True
     )
-    model = MultipleChoiceModel(args, config).to(args.device)
-    optimizer = torch.optim.AdamW(
+    model = QuestionAnsweringModel(args, config).to(args.device)
+    optimizer = AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.wd, betas=(0.9, 0.98)
     )
     scaler = GradScaler()
 
     starting_epoch = 1
-    if args.pretrain:
-        print(f"loading model from {args.pretrain}")
-        ckpt = torch.load(args.pretrain)
+    if args.load:
+        print(f"loading model from {args.load}")
+        ckpt = torch.load(args.load)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         starting_epoch = ckpt["epoch"]
     if args.wandb:
         wandb.watch(model)
 
-    train_set = MultipleChoiceDataset(args, tokenizer)
-    valid_set = MultipleChoiceDataset(args, tokenizer, mode="valid")
+    train_set = QuestionAnsweringDataset(args, tokenizer)
+    valid_set = QuestionAnsweringDataset(args, tokenizer, mode="valid")
 
     train_loader = DataLoader(
         train_set,
@@ -116,9 +126,9 @@ def main(args):
         shuffle=False,
         batch_size=args.batch_size,
     )
-    warmup_step = int(0.1 * len(train_loader)) // args.accu_step
+    update_step = num_epoch * len(train_loader) // args.accu_step + num_epoch
     scheduler = get_cosine_schedule_with_warmup(
-        optimizer, warmup_step, args.num_epoch * len(train_loader) - warmup_step
+        optimizer, 0.1 * update_step, update_step
     )
 
     best_loss = float("inf")
@@ -128,14 +138,18 @@ def main(args):
         train_loss, train_acc = train(
             args, train_loader, model, optimizer, scaler, scheduler
         )
-        valid_loss, valid_acc = validate(valid_loader, model)
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")
-        print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
         if args.wandb:
             wandb.log(
                 {
                     "Train Accuracy": train_acc,
                     "Train Loss": train_loss,
+                    })
+        valid_loss, valid_acc = validate(valid_loader, model)
+        print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
+        if args.wandb:
+            wandb.log(
+                {
                     "Validation Accuracy": valid_acc,
                     "Validation Loss": valid_loss,
                 }
@@ -194,7 +208,7 @@ def parse_args():
     parser.add_argument("--accu_step", type=int, default=8)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--pretrain", type=str, default=None)
+    parser.add_argument("--load", type=str, default=None)
 
     args = parser.parse_args()
     return args
