@@ -106,12 +106,12 @@ class QuestionAnsweringDataset(Dataset):
 
     def collate_fn(self, batch):
         ids = [ sample["id"] for sample in batch ]
-        inputs = tokenizer(
+        inputs = self.tokenizer(
             [data["question"] for data in batch],
             [self.context_data[data["context"]] for data in batch],
             max_length=512,
             truncation="only_second",
-            stride=150,
+            stride=128,
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
             padding="max_length",

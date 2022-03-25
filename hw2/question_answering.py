@@ -15,8 +15,6 @@ from model import QuestionAnsweringModel
 
 import wandb
 
-log_time = 3
-
 
 def train(args, data_loader, model, optimizer, scaler, scheduler=None):
     global log_time
@@ -36,17 +34,18 @@ def train(args, data_loader, model, optimizer, scaler, scheduler=None):
         with autocast(device_type="cpu" if args.device == "cpu" else "cuda"):
             qa_output = model(
                 input_ids=input_ids,
-                attention_mask=attention_masks,
+                attention_mask=attention_mask,
                 token_type_ids=token_type_ids,
                 start_positions = start_positions,
                 end_positions = end_positions
             )
-            print(qa_output.loss)
-            print(qa_output.start_logits)
-            print(qa_output.end_logits)
-            # acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
+            loss = qa_output.loss
+            start_logits = qa_output.start_logits.argmax(dim = -1)
+            end_logits = qa_output.end_logits.argmax(dim = -1)
+        
+            acc = ((start_positions == start_logits) & (end_positions == end_logits)).cpu().numpy().mean()
+
             loss = loss / args.accu_step
-        exit()
         scaler.scale(loss).backward()
 
         if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
@@ -72,16 +71,29 @@ def validate(data_loader, model):
     valid_accs = []
 
     for batch in tqdm(data_loader):
-        ids, input_ids, attention_masks, token_type_ids, labels = batch
-        loss, logits = model(
-            input_ids=input_ids,
-            attention_mask=attention_masks,
-            token_type_ids=token_type_ids,
-            labels=labels,
-        )
-        acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
+        ids, inputs = batch
+        input_ids = inputs["input_ids"].to(args.device)
+        token_type_ids = inputs["token_type_ids"].to(args.device)
+        attention_mask = inputs["attention_mask"].to(args.device)
+        start_positions = inputs["start_positions"].to(args.device)
+        end_positions = inputs["end_positions"].to(args.device)
+
+        qa_output = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                token_type_ids=token_type_ids,
+                start_positions = start_positions,
+                end_positions = end_positions
+            )
+        loss = qa_output.loss
+        start_logits = qa_output.start_logits.argmax(dim = -1)
+        end_logits = qa_output.end_logits.argmax(dim = -1)
+    
+        acc = ((start_positions == start_logits) & (end_positions == end_logits)).cpu().numpy().mean()
+
         valid_loss.append(loss.item())
         valid_accs.append(acc)
+
     valid_loss = sum(valid_loss) / len(valid_loss)
     valid_acc = sum(valid_accs) / len(valid_accs)
 
@@ -126,7 +138,7 @@ def main(args):
         shuffle=False,
         batch_size=args.batch_size,
     )
-    update_step = num_epoch * len(train_loader) // args.accu_step + num_epoch
+    update_step = args.num_epoch * len(train_loader) // args.accu_step + args.num_epoch
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, 0.1 * update_step, update_step
     )
@@ -194,18 +206,18 @@ def parse_args():
     parser.add_argument("--max_len", type=int, default=512)
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--lr", type=float, default=3e-5)
     parser.add_argument("--wd", type=float, default=1e-6)
 
     # data loader
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=16)
 
     # training
     parser.add_argument(
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
-    parser.add_argument("--num_epoch", type=int, default=5)
-    parser.add_argument("--accu_step", type=int, default=8)
+    parser.add_argument("--num_epoch", type=int, default=100)
+    parser.add_argument("--accu_step", type=int, default=2)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--load", type=str, default=None)
@@ -221,6 +233,6 @@ if __name__ == "__main__":
     print(args)
     if args.wandb:
         wandb.login()
-        wandb.init(project="Multiple Choice")
+        wandb.init(project="Question Answering")
         wandb.config.update(args)
     main(args)
