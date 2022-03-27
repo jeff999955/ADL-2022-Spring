@@ -171,18 +171,13 @@ def main(args):
             accelerator, args, train_loader, model, optimizer, scheduler
         )
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")
-        if args.wandb:
-            wandb.log(
-                {
-                    "Train Accuracy": train_acc,
-                    "Train Loss": train_loss,
-                }
-            )
         valid_loss, valid_acc = validate(accelerator, valid_loader, model)
         print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
         if args.wandb:
             wandb.log(
                 {
+                    "Train Accuracy": train_acc,
+                    "Train Loss": train_loss,
                     "Validation Accuracy": valid_acc,
                     "Validation Loss": valid_loss,
                 }
