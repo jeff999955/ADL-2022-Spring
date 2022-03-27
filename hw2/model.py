@@ -38,6 +38,7 @@ class QuestionAnsweringModel(nn.Module):
         for param in self.model.bert.parameters():
             param.requires_grad = False
 
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--seed", type=int, default=5920)
@@ -87,9 +88,10 @@ def parse_args():
 
 if __name__ == "__main__":
     from transformers import AutoConfig
-    args = parse_args() 
+
+    args = parse_args()
     config = AutoConfig.from_pretrained(args.model_name, return_dict=False)
 
-    model = QuestionAnsweringModel(args, config) 
+    model = QuestionAnsweringModel(args, config)
 
     print(model)

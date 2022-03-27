@@ -85,7 +85,7 @@ class QuestionAnsweringDataset(Dataset):
             print("Preprocessing QA Data:")
             for data in tqdm(json_data):
                 if mode != "test":
-                    label = data["paragraphs"].index(data["relevant"])
+                    label = data["relevant"]
                 else:
                     label = relevant[data["id"]]
 
@@ -109,7 +109,6 @@ class QuestionAnsweringDataset(Dataset):
         inputs = self.tokenizer(
             [data["question"] for data in batch],
             [self.context_data[data["context"]] for data in batch],
-            max_length=512,
             truncation="only_second",
             stride=128,
             return_overflowing_tokens=True,

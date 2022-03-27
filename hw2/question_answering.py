@@ -3,10 +3,16 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import torch
 from torch import nn, autocast
-from transformers import AdamW, AutoConfig, AutoTokenizer, get_cosine_schedule_with_warmup
+from transformers import (
+    AdamW,
+    AutoConfig,
+    AutoTokenizer,
+    get_cosine_schedule_with_warmup,
+)
 from dataset import QuestionAnsweringDataset
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
+
+from accelerate import Accelerator
 
 from tqdm import tqdm
 
@@ -15,45 +21,50 @@ from model import QuestionAnsweringModel
 
 import wandb
 
+log_step = 1
 
-def train(args, data_loader, model, optimizer, scaler, scheduler=None):
-    global log_time
+
+def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
     train_loss = []
     train_accs = []
 
     model.train()
 
+    # log_step = 1
     for idx, batch in enumerate(tqdm(data_loader)):
         ids, inputs = batch
-        input_ids = inputs["input_ids"].to(args.device)
-        token_type_ids = inputs["token_type_ids"].to(args.device)
-        attention_mask = inputs["attention_mask"].to(args.device)
-        start_positions = inputs["start_positions"].to(args.device)
-        end_positions = inputs["end_positions"].to(args.device)
+        input_ids = inputs["input_ids"]
+        token_type_ids = inputs["token_type_ids"]
+        attention_mask = inputs["attention_mask"]
+        start_positions = inputs["start_positions"]
+        end_positions = inputs["end_positions"]
 
-        with autocast(device_type="cpu" if args.device == "cpu" else "cuda"):
-            qa_output = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                start_positions = start_positions,
-                end_positions = end_positions
-            )
-            loss = qa_output.loss
-            start_logits = qa_output.start_logits.argmax(dim = -1)
-            end_logits = qa_output.end_logits.argmax(dim = -1)
-        
-            acc = ((start_positions == start_logits) & (end_positions == end_logits)).cpu().numpy().mean()
+        qa_output = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            start_positions=start_positions,
+            end_positions=end_positions,
+        )
 
-            loss = loss / args.accu_step
-        scaler.scale(loss).backward()
+        loss = qa_output.loss
+        accelerator.backward(loss)
+        # loss = loss / args.accu_step
 
-        if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
-            scaler.step(optimizer)
-            scaler.update()
-            if scheduler is not None:
-                scheduler.step()
-            optimizer.zero_grad()
+        start_logits = qa_output.start_logits.argmax(dim=-1)
+        end_logits = qa_output.end_logits.argmax(dim=-1)
+        acc = (
+            ((start_positions == start_logits) & (end_positions == end_logits))
+            .cpu()
+            .numpy()
+            .mean()
+        )
+
+        # if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
+        optimizer.step()
+        optimizer.zero_grad()
+        if scheduler is not None:
+            scheduler.step()
 
         train_loss.append(loss.item())
         train_accs.append(acc)
@@ -65,31 +76,37 @@ def train(args, data_loader, model, optimizer, scaler, scheduler=None):
 
 
 @torch.no_grad()
-def validate(data_loader, model):
+def validate(accelerator, data_loader, model):
     model.eval()
     valid_loss = []
     valid_accs = []
 
+    # log_step = 1
     for batch in tqdm(data_loader):
         ids, inputs = batch
-        input_ids = inputs["input_ids"].to(args.device)
-        token_type_ids = inputs["token_type_ids"].to(args.device)
-        attention_mask = inputs["attention_mask"].to(args.device)
-        start_positions = inputs["start_positions"].to(args.device)
-        end_positions = inputs["end_positions"].to(args.device)
-
+        n = inputs["input_ids"].shape[0]
+        input_ids = inputs["input_ids"]
+        token_type_ids = inputs["token_type_ids"]
+        attention_mask = inputs["attention_mask"]
+        start_positions = inputs["start_positions"]
+        end_positions = inputs["end_positions"]
         qa_output = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                token_type_ids=token_type_ids,
-                start_positions = start_positions,
-                end_positions = end_positions
-            )
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            start_positions=start_positions,
+            end_positions=end_positions,
+        )
         loss = qa_output.loss
-        start_logits = qa_output.start_logits.argmax(dim = -1)
-        end_logits = qa_output.end_logits.argmax(dim = -1)
-    
-        acc = ((start_positions == start_logits) & (end_positions == end_logits)).cpu().numpy().mean()
+
+        start_logits = qa_output.start_logits.argmax(dim=-1)
+        end_logits = qa_output.end_logits.argmax(dim=-1)
+        acc = (
+            ((start_positions == start_logits) & (end_positions == end_logits))
+            .cpu()
+            .numpy()
+            .mean()
+        )
 
         valid_loss.append(loss.item())
         valid_accs.append(acc)
@@ -102,16 +119,15 @@ def validate(data_loader, model):
 
 def main(args):
     same_seeds(args.seed)
+    accelerator = Accelerator(fp16=True)
+    print(f"Using {accelerator.device}")
 
     config = AutoConfig.from_pretrained(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name, config=config, model_max_length=512, use_fast=True
+        args.model_name, config=config, model_max_length=args.max_len, use_fast=True
     )
-    model = QuestionAnsweringModel(args, config).to(args.device)
-    optimizer = AdamW(
-        model.parameters(), lr=args.lr, weight_decay=args.wd, betas=(0.9, 0.98)
-    )
-    scaler = GradScaler()
+    model = QuestionAnsweringModel(args, config)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
 
     starting_epoch = 1
     if args.load:
@@ -143,12 +159,16 @@ def main(args):
         optimizer, 0.1 * update_step, update_step
     )
 
+    model, optimizer, train_loader, valid_loader = accelerator.prepare(
+        model, optimizer, train_loader, valid_loader
+    )
+
     best_loss = float("inf")
 
     for epoch in range(starting_epoch, args.num_epoch + 1):
         print(f"Epoch {epoch}:")
         train_loss, train_acc = train(
-            args, train_loader, model, optimizer, scaler, scheduler
+            accelerator, args, train_loader, model, optimizer, scheduler
         )
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")
         if args.wandb:
@@ -156,8 +176,9 @@ def main(args):
                 {
                     "Train Accuracy": train_acc,
                     "Train Loss": train_loss,
-                    })
-        valid_loss, valid_acc = validate(valid_loader, model)
+                }
+            )
+        valid_loss, valid_acc = validate(accelerator, valid_loader, model)
         print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
         if args.wandb:
             wandb.log(
@@ -216,7 +237,7 @@ def parse_args():
     parser.add_argument(
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
-    parser.add_argument("--num_epoch", type=int, default=100)
+    parser.add_argument("--num_epoch", type=int, default=5)
     parser.add_argument("--accu_step", type=int, default=2)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
