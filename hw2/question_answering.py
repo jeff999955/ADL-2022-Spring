@@ -48,8 +48,8 @@ def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
         )
 
         loss = qa_output.loss
+        loss = loss / args.accu_step
         accelerator.backward(loss)
-        # loss = loss / args.accu_step
 
         start_logits = qa_output.start_logits.argmax(dim=-1)
         end_logits = qa_output.end_logits.argmax(dim=-1)
@@ -60,11 +60,11 @@ def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
             .mean()
         )
 
-        # if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
-        optimizer.step()
-        optimizer.zero_grad()
-        if scheduler is not None:
-            scheduler.step()
+        if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
+            optimizer.step()
+            optimizer.zero_grad()
+            if scheduler is not None:
+                scheduler.step()
 
         train_loss.append(loss.item())
         train_accs.append(acc)
@@ -233,7 +233,7 @@ def parse_args():
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
     parser.add_argument("--num_epoch", type=int, default=5)
-    parser.add_argument("--accu_step", type=int, default=2)
+    parser.add_argument("--accu_step", type=int, default=4)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--load", type=str, default=None)
