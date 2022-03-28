@@ -2,11 +2,11 @@ import os
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import torch
-from torch import nn, autocast
+from torch import nn
 from transformers import AutoConfig, AutoTokenizer, get_cosine_schedule_with_warmup
 from dataset import MultipleChoiceDataset
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
+from accelerate import Accelerator
 
 from tqdm import tqdm
 
@@ -18,7 +18,7 @@ import wandb
 log_time = 3
 
 
-def train(args, data_loader, model, optimizer, scaler, scheduler=None):
+def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
     global log_time
     train_loss = []
     train_accs = []
@@ -27,24 +27,21 @@ def train(args, data_loader, model, optimizer, scaler, scheduler=None):
 
     for idx, batch in enumerate(tqdm(data_loader)):
         ids, input_ids, attention_masks, token_type_ids, labels = batch
-        with autocast(device_type="cpu" if args.device == "cpu" else "cuda"):
-            loss, logits = model(
-                input_ids=input_ids,
-                attention_mask=attention_masks,
-                token_type_ids=token_type_ids,
-                labels=labels,
-            )
-            acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
-            loss = loss / args.accu_step
-
-        scaler.scale(loss).backward()
+        loss, logits = model(
+            input_ids=input_ids,
+            attention_mask=attention_masks,
+            token_type_ids=token_type_ids,
+            labels=labels,
+        )
+        acc = (logits.argmax(dim=-1) == labels).cpu().float().mean()
+        loss = loss / args.accu_step
+        accelerator.backward(loss)
 
         if ((idx + 1) % args.accu_step == 0) or (idx == len(data_loader) - 1):
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
+            optimizer.zero_grad()
             if scheduler is not None:
                 scheduler.step()
-            optimizer.zero_grad()
 
         train_loss.append(loss.item())
         train_accs.append(acc)
@@ -80,16 +77,15 @@ def validate(data_loader, model):
 
 def main(args):
     same_seeds(args.seed)
-
+    accelerator = Accelerator(fp16=True)
     config = AutoConfig.from_pretrained(args.model_name, return_dict=False)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, config=config, model_max_length=512, use_fast=True
     )
-    model = MultipleChoiceModel(args, config).to(args.device)
+    model = MultipleChoiceModel(args, config)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.lr, weight_decay=args.wd, betas=(0.9, 0.98)
     )
-    scaler = GradScaler()
 
     starting_epoch = 1
     if args.pretrain:
@@ -121,12 +117,15 @@ def main(args):
         optimizer, warmup_step, args.num_epoch * len(train_loader) - warmup_step
     )
 
+    model, optimizer, train_loader, valid_loader = accelerator.prepare(
+        model, optimizer, train_loader, valid_loader
+    )
     best_loss = float("inf")
 
     for epoch in range(starting_epoch, args.num_epoch + 1):
         print(f"Epoch {epoch}:")
         train_loss, train_acc = train(
-            args, train_loader, model, optimizer, scaler, scheduler
+            accelerator, args, train_loader, model, optimizer, scheduler
         )
         valid_loss, valid_acc = validate(valid_loader, model)
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")

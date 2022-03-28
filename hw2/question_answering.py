@@ -2,7 +2,7 @@ import os
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import torch
-from torch import nn, autocast
+from torch import nn
 from transformers import (
     AdamW,
     AutoConfig,
@@ -76,7 +76,7 @@ def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
 
 
 @torch.no_grad()
-def validate(accelerator, data_loader, model):
+def validate(data_loader, model):
     model.eval()
     valid_loss = []
     valid_accs = []
@@ -171,7 +171,7 @@ def main(args):
             accelerator, args, train_loader, model, optimizer, scheduler
         )
         print(f"Train Accuracy: {train_acc:.2f}, Train Loss: {train_loss:.2f}")
-        valid_loss, valid_acc = validate(accelerator, valid_loader, model)
+        valid_loss, valid_acc = validate(valid_loader, model)
         print(f"Valid Accuracy: {valid_acc:.2f}, Valid Loss: {valid_loss:.2f}")
         if args.wandb:
             wandb.log(
@@ -191,7 +191,7 @@ def main(args):
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                 },
-                os.path.join(args.ckpt_dir, f"{args.prefix}mc_loss.ckpt"),
+                os.path.join(args.ckpt_dir, f"{args.prefix}qa_loss.ckpt"),
             )
 
 
