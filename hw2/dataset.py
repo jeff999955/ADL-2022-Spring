@@ -260,7 +260,7 @@ if __name__ == "__main__":
     test_set = QuestionAnsweringDataset(args, tokenizer, mode="test")
     test_loader = DataLoader(
         test_set,
-        collate_fn=valid_set.collate_fn,
+        collate_fn=test_set.collate_fn,
         shuffle=False,
         batch_size=1,
     )
