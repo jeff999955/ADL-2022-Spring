@@ -82,7 +82,7 @@ class QuestionAnsweringDataset(Dataset):
             self.context_data = json.load(f)
         with open(os.path.join(args.data_dir, f"{mode}.json"), "r") as f:
             json_data = json.load(f)
-            print("Preprocessing QA Data:")
+            print(f"Preprocessing QA {mode} Data:")
             for data in tqdm(json_data):
                 tp = {
                         "id": data["id"],
@@ -98,6 +98,18 @@ class QuestionAnsweringDataset(Dataset):
                         "context": data["paragraphs"][relevant[data["id"]]],
                     })
                 self.json_data.append(tp)
+        if mode == "train":
+            with open(os.path.join(args.data_dir, f"valid.json"), "r") as f:
+                json_data = json.load(f)
+                for data in tqdm(json_data):
+                    tp = {
+                            "id": data["id"],
+                            "question": data["question"],
+                            "context": data["relevant"],
+                            "answer": data["answer"],
+                        }
+                    self.json_data.append(tp)
+
 
     def __len__(self):
         return len(self.json_data)
