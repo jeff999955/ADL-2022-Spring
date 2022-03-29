@@ -7,11 +7,12 @@ import torch.nn.functional as F
 
 
 class MultipleChoiceModel(nn.Module):
-    def __init__(self, args, config):
+    def __init__(self, args, config, namae = None):
         super(MultipleChoiceModel, self).__init__()
+        self.name = namae if namae is not None else args.model_name
         self.model = AutoModelForMultipleChoice.from_pretrained(
-            args.model_name, config=config
-        ).to(args.device)
+            self.name, config=config
+        )
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)
@@ -23,12 +24,12 @@ class MultipleChoiceModel(nn.Module):
 
 
 class QuestionAnsweringModel(nn.Module):
-    def __init__(self, args, config, out_dim=1):
+    def __init__(self, args, config, namae = None):
         super(QuestionAnsweringModel, self).__init__()
-        self.model = AutoModelForQuestionAnswering.from_pretrained(
-            args.model_name, config=config
-        ).to(args.device)
-        self.model.classifier = nn.Linear(768, out_dim)
+        self.name = namae if namae is not None else args.model_name
+        self.model = AutoModelForMultipleChoice.from_pretrained(
+            self.name, config=config
+        )
 
     def forward(self, *args, **kwargs):
         return self.model(*args, **kwargs)

@@ -87,7 +87,7 @@ class QuestionAnsweringDataset(Dataset):
                 if mode != "test":
                     label = data["relevant"]
                 else:
-                    label = relevant[data["id"]]
+                    label = data["paragraph"][relevant[data["id"]]]
 
                 self.json_data.append(
                     {
@@ -116,6 +116,8 @@ class QuestionAnsweringDataset(Dataset):
             padding="max_length",
             return_tensors="pt",
         )
+        inputs["context"] = [self.context_data[data["context"]] for data in batch]
+        print(inputs.keys())
 
         if self.mode != "test":
             offset_mapping = inputs.pop("offset_mapping")
@@ -170,12 +172,12 @@ class QuestionAnsweringDataset(Dataset):
                 example_ids.append(batch[sample_idx]["id"])
 
                 sequence_ids = inputs.sequence_ids(i)
-                offset = inputs["offset_mapping"][i]
-                inputs["offset_mapping"][i] = [
+                offset = inputs[i]["offset_mapping"]
+                inputs[i]["offset_mapping"] = [
                     o if sequence_ids[k] == 1 else None for k, o in enumerate(offset)
                 ]
 
-            inputs["example_id"] = torch.tensor(example_ids)
+            inputs["example_id"] = example_ids
         return ids, inputs
 
 
