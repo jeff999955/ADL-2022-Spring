@@ -27,7 +27,7 @@ class QuestionAnsweringModel(nn.Module):
     def __init__(self, args, config, namae = None):
         super(QuestionAnsweringModel, self).__init__()
         self.name = namae if namae is not None else args.model_name
-        self.model = AutoModelForMultipleChoice.from_pretrained(
+        self.model = AutoModelForQuestionAnswering.from_pretrained(
             self.name, config=config
         )
 

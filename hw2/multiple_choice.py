@@ -80,7 +80,7 @@ def main(args):
     accelerator = Accelerator(fp16=True)
     config = AutoConfig.from_pretrained(args.model_name, return_dict=False)
     tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name, config=config, model_max_length=512, use_fast=True
+        args.model_name, config=config, model_max_length=args.max_len, use_fast=True
     )
     model = MultipleChoiceModel(args, config)
     optimizer = torch.optim.AdamW(
@@ -141,15 +141,15 @@ def main(args):
             )
         if valid_loss < best_loss:
             best_loss = valid_loss
-            torch.save(
-                {
-                    "name": args.model_name,
-                    "epoch": epoch,
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                },
-                os.path.join(args.ckpt_dir, f"{args.prefix}mc_loss.ckpt"),
-            )
+        torch.save(
+            {
+                "name": args.model_name,
+                "epoch": epoch,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+            },
+            os.path.join(args.ckpt_dir, f"{args.prefix}mc_{epoch}.ckpt"),
+        )
 
 
 def parse_args():

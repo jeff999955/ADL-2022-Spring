@@ -84,19 +84,20 @@ class QuestionAnsweringDataset(Dataset):
             json_data = json.load(f)
             print("Preprocessing QA Data:")
             for data in tqdm(json_data):
-                if mode != "test":
-                    label = data["relevant"]
-                else:
-                    label = data["paragraph"][relevant[data["id"]]]
-
-                self.json_data.append(
-                    {
+                tp = {
                         "id": data["id"],
                         "question": data["question"],
-                        "context": label,
+                }
+                if mode != "test":
+                    tp.update({
+                        "context": data["relevant"],
                         "answer": data["answer"],
-                    }
-                )
+                    })
+                else:
+                    tp.update({
+                        "context": data["paragraphs"][relevant[data["id"]]],
+                    })
+                self.json_data.append(tp)
 
     def __len__(self):
         return len(self.json_data)
@@ -117,7 +118,6 @@ class QuestionAnsweringDataset(Dataset):
             return_tensors="pt",
         )
         inputs["context"] = [self.context_data[data["context"]] for data in batch]
-        print(inputs.keys())
 
         if self.mode != "test":
             offset_mapping = inputs.pop("offset_mapping")
@@ -166,18 +166,19 @@ class QuestionAnsweringDataset(Dataset):
         else:
             sample_map = inputs.pop("overflow_to_sample_mapping")
             example_ids = []
+            offset_mapping = []
 
             for i in range(len(inputs["input_ids"])):
                 sample_idx = sample_map[i]
                 example_ids.append(batch[sample_idx]["id"])
 
                 sequence_ids = inputs.sequence_ids(i)
-                offset = inputs[i]["offset_mapping"]
-                inputs[i]["offset_mapping"] = [
-                    o if sequence_ids[k] == 1 else None for k, o in enumerate(offset)
-                ]
+                offset = inputs["offset_mapping"][i]
+                offset_mapping.append([o if sequence_ids[k] == 1 else None for k, o in enumerate(offset)])
+    
 
             inputs["example_id"] = example_ids
+            inputs["offset_mapping"] = offset_mapping
         return ids, inputs
 
 
@@ -255,30 +256,48 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, config=config, model_max_length=512, use_fast=True
     )
-
-    train_set = QuestionAnsweringDataset(args, tokenizer)
-    valid_set = QuestionAnsweringDataset(args, tokenizer, mode="valid")
-
-    train_loader = DataLoader(
-        train_set,
-        collate_fn=train_set.collate_fn,
-        shuffle=True,
-        batch_size=args.batch_size,
-    )
-    valid_loader = DataLoader(
-        valid_set,
+    
+    test_set = QuestionAnsweringDataset(args, tokenizer, mode="test")
+    test_loader = DataLoader(
+        test_set,
         collate_fn=valid_set.collate_fn,
         shuffle=False,
-        batch_size=args.batch_size,
+        batch_size=1,
     )
-    for id, data in tqdm(train_loader):
-        print("train")
-        for k, v in data.items():
-            print(k, v.type())
-        break
+    
+    cnt = 3
+    for batch in test_loader:
+        cnt -= 1
+        if not cnt: break
+        ids, inputs = batch
+        answers = []
+        example_id = example["id"]
+        
+        for feature_index in range(len(inputs_id)):
+            start_logit = start_logits[feature_index]
+            end_logit = end_logits[feature_index]
+            offsets = inputs["offset_mapping"][feature_index]
 
-    for id, data in tqdm(valid_loader):
-        print("valid")
-        for k, v in data.items():
-            print(f"{k} = inputs[\"{k}\"].to(args.device)")
-        break
+            start_indexes = np.argsort(start_logit)[-1 : -n_best - 1 : -1].tolist()
+            end_indexes = np.argsort(end_logit)[-1 : -n_best - 1 : -1].tolist()
+            for start_index in start_indexes:
+                for end_index in end_indexes:
+                    # Skip answers that are not fully in the context
+                    if offsets[start_index] is None or offsets[end_index] is None:
+                        continue
+                    # Skip answers with a length that is either < 0 or > max_answer_length.
+                    if (
+                        end_index < start_index
+                        or end_index - start_index + 1 > max_answer_length
+                    ):
+                        continue
+
+                    answers.append(
+                        {
+                            "text": context[offsets[start_index][0] : offsets[end_index][1]],
+                            "logit_score": start_logit[start_index] + end_logit[end_index],
+                        }
+                    )
+
+        best_answer = max(answers, key=lambda x: x["logit_score"])
+        predicted_answers.append({"id": example_id, "prediction_text": best_answer["text"]})

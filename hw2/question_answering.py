@@ -38,7 +38,6 @@ def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
         attention_mask = inputs["attention_mask"]
         start_positions = inputs["start_positions"]
         end_positions = inputs["end_positions"]
-
         qa_output = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -193,7 +192,15 @@ def main(args):
                 },
                 os.path.join(args.ckpt_dir, f"{args.prefix}qa_loss.ckpt"),
             )
-
+        torch.save(
+            {
+                "name": args.model_name,
+                "epoch": epoch,
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+            },
+            os.path.join(args.ckpt_dir, f"{args.prefix}qa_{epoch}.ckpt"), 
+            )
 
 def parse_args():
     parser = ArgumentParser()
