@@ -14,16 +14,15 @@ class MultipleChoiceDataset(Dataset):
         try:
             self.json_data = torch.load(os.path.join(args.cache_dir, f"mc_{mode}.dat"))
         except Exception as e:
-            print(e)
-            if args.context_path:
+            try:
                 path = args.context_path
-            else:
+            except:
                 path = os.path.join(args.data_dir, "context.json")
             with open(path, "r") as f:
                 context_data = json.load(f)
-            if args.json_path:
+            try:
                 path = args.json_path
-            else:
+            except:
                 path = os.path.join(args.data_dir, f"{mode}.json")
             with open(path, "r") as f:
                 json_data = json.load(f)
@@ -84,46 +83,38 @@ class QuestionAnsweringDataset(Dataset):
         self.mode = mode
         self.tokenizer = tokenizer
         self.json_data = []
-        if args.context_path:
+        try:
             path = args.context_path
-        else:
+        except:
             path = os.path.join(args.data_dir, "context.json")
         with open(path, "r") as f:
             self.context_data = json.load(f)
-        if args.json_path:
+        try:
             path = args.json_path
-        else:
+        except:
             path = os.path.join(args.data_dir, f"{mode}.json")
         with open(path, "r") as f:
             json_data = json.load(f)
             print(f"Preprocessing QA {mode} Data:")
             for data in tqdm(json_data):
                 tp = {
-                        "id": data["id"],
-                        "question": data["question"],
+                    "id": data["id"],
+                    "question": data["question"],
                 }
                 if mode != "test":
-                    tp.update({
-                        "context": data["relevant"],
-                        "answer": data["answer"],
-                    })
-                else:
-                    tp.update({
-                        "context": data["paragraphs"][relevant[data["id"]]],
-                    })
-                self.json_data.append(tp)
-        if mode == "train":
-            with open(os.path.join(args.data_dir, f"valid.json"), "r") as f:
-                json_data = json.load(f)
-                for data in tqdm(json_data):
-                    tp = {
-                            "id": data["id"],
-                            "question": data["question"],
+                    tp.update(
+                        {
                             "context": data["relevant"],
                             "answer": data["answer"],
                         }
-                    self.json_data.append(tp)
-
+                    )
+                else:
+                    tp.update(
+                        {
+                            "context": data["paragraphs"][relevant[data["id"]]],
+                        }
+                    )
+                self.json_data.append(tp)
 
     def __len__(self):
         return len(self.json_data)
@@ -132,7 +123,7 @@ class QuestionAnsweringDataset(Dataset):
         return self.json_data[idx]
 
     def collate_fn(self, batch):
-        ids = [ sample["id"] for sample in batch ]
+        ids = [sample["id"] for sample in batch]
         inputs = self.tokenizer(
             [data["question"] for data in batch],
             [self.context_data[data["context"]] for data in batch],
@@ -200,8 +191,9 @@ class QuestionAnsweringDataset(Dataset):
 
                 sequence_ids = inputs.sequence_ids(i)
                 offset = inputs["offset_mapping"][i]
-                offset_mapping.append([o if sequence_ids[k] == 1 else None for k, o in enumerate(offset)])
-    
+                offset_mapping.append(
+                    [o if sequence_ids[k] == 1 else None for k, o in enumerate(offset)]
+                )
 
             inputs["example_id"] = example_ids
             inputs["offset_mapping"] = offset_mapping
@@ -279,7 +271,7 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, config=config, model_max_length=512, use_fast=True
     )
-    
+
     test_set = QuestionAnsweringDataset(args, tokenizer, mode="test")
     test_loader = DataLoader(
         test_set,
@@ -287,15 +279,16 @@ if __name__ == "__main__":
         shuffle=False,
         batch_size=1,
     )
-    
+
     cnt = 3
     for batch in test_loader:
         cnt -= 1
-        if not cnt: break
+        if not cnt:
+            break
         ids, inputs = batch
         answers = []
         example_id = example["id"]
-        
+
         for feature_index in range(len(inputs_id)):
             start_logit = start_logits[feature_index]
             end_logit = end_logits[feature_index]
@@ -317,10 +310,15 @@ if __name__ == "__main__":
 
                     answers.append(
                         {
-                            "text": context[offsets[start_index][0] : offsets[end_index][1]],
-                            "logit_score": start_logit[start_index] + end_logit[end_index],
+                            "text": context[
+                                offsets[start_index][0] : offsets[end_index][1]
+                            ],
+                            "logit_score": start_logit[start_index]
+                            + end_logit[end_index],
                         }
                     )
 
         best_answer = max(answers, key=lambda x: x["logit_score"])
-        predicted_answers.append({"id": example_id, "prediction_text": best_answer["text"]})
+        predicted_answers.append(
+            {"id": example_id, "prediction_text": best_answer["text"]}
+        )

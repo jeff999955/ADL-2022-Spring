@@ -199,8 +199,9 @@ def main(args):
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
             },
-            os.path.join(args.ckpt_dir, f"{args.prefix}qa_{epoch}.ckpt"), 
-            )
+            os.path.join(args.ckpt_dir, f"{args.prefix}qa_{epoch}.ckpt"),
+        )
+
 
 def parse_args():
     parser = ArgumentParser()
@@ -244,6 +245,7 @@ def parse_args():
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--load", type=str, default=None)
+    parser.add_argument("--from_pretrain", action="store_true")
 
     args = parser.parse_args()
     return args

@@ -163,6 +163,7 @@ def parse_args():
     parser.add_argument("--csv_path", type=str, default="submission.csv")
 
     parser.add_argument("--max_len", type=int, default=512)
+    parser.add_argument("--from_pretrain", action="store_true")
 
     args = parser.parse_args()
     return args

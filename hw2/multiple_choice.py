@@ -15,8 +15,6 @@ from model import MultipleChoiceModel
 
 import wandb
 
-log_time = 3
-
 
 def train(accelerator, args, data_loader, model, optimizer, scheduler=None):
     global log_time
@@ -88,12 +86,6 @@ def main(args):
     )
 
     starting_epoch = 1
-    if args.pretrain:
-        print(f"loading model from {args.pretrain}")
-        ckpt = torch.load(args.pretrain)
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        starting_epoch = ckpt["epoch"]
     if args.wandb:
         wandb.watch(model)
 
@@ -193,7 +185,7 @@ def parse_args():
     parser.add_argument("--accu_step", type=int, default=8)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
-    parser.add_argument("--pretrain", type=str, default=None)
+    parser.add_argument("--from_pretrain", action="store_true")
 
     args = parser.parse_args()
     return args
