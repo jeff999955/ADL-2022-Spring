@@ -10,17 +10,24 @@ from tqdm import tqdm
 class MultipleChoiceDataset(Dataset):
     def __init__(self, args, tokenizer, mode="train"):
         self.mode = mode
-        self.device = args.device
         self.json_data = []
         try:
             self.json_data = torch.load(os.path.join(args.cache_dir, f"mc_{mode}.dat"))
         except Exception as e:
             print(e)
-            with open(os.path.join(args.data_dir, "context.json"), "r") as f:
+            if args.context_path:
+                path = args.context_path
+            else:
+                path = os.path.join(args.data_dir, "context.json")
+            with open(path, "r") as f:
                 context_data = json.load(f)
-            with open(os.path.join(args.data_dir, f"{mode}.json"), "r") as f:
+            if args.json_path:
+                path = args.json_path
+            else:
+                path = os.path.join(args.data_dir, f"{mode}.json")
+            with open(path, "r") as f:
                 json_data = json.load(f)
-                print("Preprocessing Data:")
+                print(f"Preprocessing {mode} Data:")
                 for data in tqdm(json_data):
                     if mode != "test":
                         label = data["paragraphs"].index(data["relevant"])
@@ -64,10 +71,10 @@ class MultipleChoiceDataset(Dataset):
             token_type_ids.append(sample["token_type_ids"])
             attention_masks.append(sample["attention_mask"])
             labels.append(sample["label"])
-        input_ids = torch.stack(input_ids).to(self.device)
-        attention_masks = torch.stack(attention_masks).to(self.device)
-        token_type_ids = torch.stack(token_type_ids).to(self.device)
-        labels = torch.LongTensor(labels).to(self.device)
+        input_ids = torch.stack(input_ids)
+        attention_masks = torch.stack(attention_masks)
+        token_type_ids = torch.stack(token_type_ids)
+        labels = torch.LongTensor(labels)
         return ids, input_ids, attention_masks, token_type_ids, labels
 
 
@@ -75,12 +82,19 @@ class QuestionAnsweringDataset(Dataset):
     def __init__(self, args, tokenizer, mode="train", relevant=None):
         assert not (mode == "test" and relevant is None)
         self.mode = mode
-        self.device = args.device
         self.tokenizer = tokenizer
         self.json_data = []
-        with open(os.path.join(args.data_dir, "context.json"), "r") as f:
+        if args.context_path:
+            path = args.context_path
+        else:
+            path = os.path.join(args.data_dir, "context.json")
+        with open(path, "r") as f:
             self.context_data = json.load(f)
-        with open(os.path.join(args.data_dir, f"{mode}.json"), "r") as f:
+        if args.json_path:
+            path = args.json_path
+        else:
+            path = os.path.join(args.data_dir, f"{mode}.json")
+        with open(path, "r") as f:
             json_data = json.load(f)
             print(f"Preprocessing QA {mode} Data:")
             for data in tqdm(json_data):
@@ -240,9 +254,6 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=8)
 
     # training
-    parser.add_argument(
-        "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
-    )
     parser.add_argument("--num_epoch", type=int, default=200)
 
     parser.add_argument("--accu_step", type=int, default=8)
