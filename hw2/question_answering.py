@@ -7,6 +7,7 @@ from transformers import (
     AdamW,
     AutoConfig,
     AutoTokenizer,
+    BertConfig,
     get_cosine_schedule_with_warmup,
 )
 from dataset import QuestionAnsweringDataset
@@ -121,7 +122,19 @@ def main(args):
     accelerator = Accelerator(fp16=True)
     print(f"Using {accelerator.device}")
 
-    config = AutoConfig.from_pretrained(args.model_name)
+    if args.from_scratch:
+        config = BertConfig(
+            hidden_size=256,
+            num_hidden_layers=4,
+            num_attention_heads=2,
+            intermediate_size=512,
+            classifier_dropout=0.3,
+            pooler_fc_size=256,
+            pooler_num_attention_heads=2,
+        )
+    else:
+        config = AutoConfig.from_pretrained(args.model_name)
+    print(config)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, config=config, model_max_length=args.max_len, use_fast=True
     )
@@ -245,7 +258,7 @@ def parse_args():
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--load", type=str, default=None)
-    parser.add_argument("--from_pretrain", action="store_true")
+    parser.add_argument("--from_scratch", action="store_true")
 
     args = parser.parse_args()
     return args

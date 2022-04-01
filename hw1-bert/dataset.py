@@ -10,14 +10,17 @@ class SeqClsDataset(Dataset):
         self,
         data_path: str,
         label_mapping: Dict[str, int],
-        max_len: int,
+        tokenizer,
+        max_len: int = 128,
+        mode = "train"
     ):
         with open(data_path, 'r') as f:
-            self.data = json.load(data_path)
+            self.data = json.load(f)
         self.label_mapping = label_mapping
         self._idx2label = {idx: intent for intent, idx in self.label_mapping.items()}
         self.max_len = max_len
         self.mode = mode
+        self.tokenizer = tokenizer
 
         """
         data:
@@ -41,20 +44,17 @@ class SeqClsDataset(Dataset):
 
     def collate_fn(self, samples: List[Dict]) -> Dict:
         # TODO: implement collate_fn
-        text, intent, id = [], [], []
+        intent, ids = [], []
         for sample in samples:
-            id.append(sample["id"])
+            ids.append(sample["id"])
             if self.mode != "test":
                 intent.append(self.label_mapping[sample["intent"]])
-            text.append(re.sub(r'[^\w\s]', '', sample["text"]).split())
 
-        # padding is done by TA SeemsGood
-        text = self.vocab.encode_batch(text, self.max_len)
-        text = torch.tensor(text)
+        inputs = self.tokenizer([data["text"] for data in samples], padding = "max_length", truncation = True, return_tensors = "pt")
         if self.mode != "test":
-            intent = torch.tensor(intent)
-            return text, intent, id
-        return text, id
+            intent = torch.tensor(intent) #, dtype = torch.float)
+            return inputs, intent, ids
+        return inputs, ids
 
     def label2idx(self, label: str):
         return self.label_mapping[label]
@@ -69,20 +69,19 @@ class STDataset(Dataset):
     """
     def __init__(
         self,
-        data: List[Dict],
-        vocab: Vocab,
+        data_path: str,
         label_mapping: Dict[str, int],
-        max_len: int,
-        mode: str = "train"
+        tokenizer,
+        max_len: int = 128,
+        mode = "train"
     ):
-        self.data = data
-        self.vocab: Vocab = vocab
+        with open(data_path, 'r') as f:
+            self.data = json.load(f)
         self.label_mapping = label_mapping
         self._idx2label = {idx: intent for intent, idx in self.label_mapping.items()}
         self.max_len = max_len
         self.mode = mode
-
-        
+        self.tokenizer = tokenizer
 
     def __len__(self) -> int:
         return len(self.data)
@@ -98,23 +97,19 @@ class STDataset(Dataset):
     def collate_fn(self, samples: List[Dict]) -> Dict:
         # TODO: implement collate_fn
         # print(self.label_mapping)
-        tokens, tags, length, id = [], [], [], []
+        tags, length, ids = [], [], []
         for sample in samples:
-            id.append(sample["id"])
+            ids.append(sample["id"])
             if self.mode != "test":
                 tags.append([self.label_mapping[tag] for tag in sample["tags"]])
             length.append(len(sample["tokens"]))
-            tokens.append(sample["tokens"])
 
-        # padding is done by TA SeemsGood
-        tokens = self.vocab.encode_batch(tokens, self.max_len)
-        tokens = torch.tensor(tokens)
+        inputs = self.tokenizer([" ".join(data["tokens"]) for data in samples], padding = "max_length", truncation = True, return_tensors = "pt")
+ 
         if self.mode != "test":
-            tags = pad_to_len(tags, self.max_len, 9)
-            tags = torch.tensor(tags)
-            # print(tags)
-            return tokens, tags, length, id
-        return tokens, length, id
+            tags = torch.tensor(tags) #, dtype = torch.float)
+            return inputs, tags, length, ids
+        return inputs, length, ids
 
 
     def label2idx(self, label: str):

@@ -128,7 +128,7 @@ class QuestionAnsweringDataset(Dataset):
             [data["question"] for data in batch],
             [self.context_data[data["context"]] for data in batch],
             truncation="only_second",
-            stride=128,
+            stride=32, # TODO: change to 128 for pretrained model
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
             padding="max_length",
