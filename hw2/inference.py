@@ -1,22 +1,19 @@
+import collections
 import os
 from argparse import ArgumentParser
 from pathlib import Path
-import torch
-from torch import nn
-from transformers import AutoConfig, AutoTokenizer
-from dataset import *
-from torch.utils.data import DataLoader
-from accelerate import Accelerator
-
-from tqdm import tqdm
-
-from utils import same_seeds
-from model import *
-
-import wandb
 
 import numpy as np
-import collections
+import torch
+from accelerate import Accelerator
+from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from transformers import AutoConfig, AutoTokenizer
+
+from dataset import *
+from model import *
+from utils import same_seeds
 
 
 @torch.no_grad()

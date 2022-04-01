@@ -1,9 +1,9 @@
-import os
 import json
-import torch
+import os
 import random
-from torch.utils.data import Dataset
 
+import torch
+from torch.utils.data import Dataset
 from tqdm import tqdm
 
 
@@ -128,7 +128,7 @@ class QuestionAnsweringDataset(Dataset):
             [data["question"] for data in batch],
             [self.context_data[data["context"]] for data in batch],
             truncation="only_second",
-            stride=32, # TODO: change to 128 for pretrained model
+            stride=128,  # TODO: change to 32 for model from scatch
             return_overflowing_tokens=True,
             return_offsets_mapping=True,
             padding="max_length",
@@ -199,126 +199,3 @@ class QuestionAnsweringDataset(Dataset):
             inputs["offset_mapping"] = offset_mapping
         return ids, inputs
 
-
-def parse_args():
-    from argparse import ArgumentParser, Namespace
-
-    parser = ArgumentParser()
-    parser.add_argument("--seed", type=int, default=5920)
-    parser.add_argument(
-        "--data_dir",
-        type=Path,
-        help="Directory to the dataset.",
-        default=".",
-    )
-    parser.add_argument("--model_name", type=str, default="hfl/chinese-macbert-base")
-    parser.add_argument(
-        "--cache_dir",
-        type=Path,
-        help="Directory to save the cache file.",
-        default="./cache",
-    )
-    parser.add_argument(
-        "--ckpt_dir",
-        type=Path,
-        help="Directory to save the model file.",
-        default="./ckpt/intent/",
-    )
-
-    # data
-    parser.add_argument("--max_len", type=int, default=512)
-
-    # model
-    parser.add_argument("--hidden_size", type=int, default=128)
-    parser.add_argument("--num_layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.5)
-    parser.add_argument("--bidirectional", type=bool, default=True)
-    parser.add_argument(
-        "--recurrent", type=str, choices=["rnn", "lstm", "gru"], default="gru"
-    )
-    parser.add_argument("--freeze", type=bool, default=False)
-
-    # optimizer
-    parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--wd", type=float, default=1e-6)
-
-    # data loader
-    parser.add_argument("--batch_size", type=int, default=8)
-
-    # training
-    parser.add_argument("--num_epoch", type=int, default=200)
-
-    parser.add_argument("--accu_step", type=int, default=8)
-
-    parser.add_argument("--prefix", type=str, default="")
-
-    parser.add_argument("--wandb", action="store_true")
-
-    args = parser.parse_args()
-    return args
-
-
-if __name__ == "__main__":
-    from transformers import AutoConfig, AutoTokenizer, AutoModelForMultipleChoice
-    from torch.utils.data import DataLoader
-
-    from tqdm import tqdm
-    from pathlib import Path
-
-    args = parse_args()
-
-    config = AutoConfig.from_pretrained(args.model_name, return_dict=False)
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name, config=config, model_max_length=512, use_fast=True
-    )
-
-    test_set = QuestionAnsweringDataset(args, tokenizer, mode="test")
-    test_loader = DataLoader(
-        test_set,
-        collate_fn=test_set.collate_fn,
-        shuffle=False,
-        batch_size=1,
-    )
-
-    cnt = 3
-    for batch in test_loader:
-        cnt -= 1
-        if not cnt:
-            break
-        ids, inputs = batch
-        answers = []
-        example_id = example["id"]
-
-        for feature_index in range(len(inputs_id)):
-            start_logit = start_logits[feature_index]
-            end_logit = end_logits[feature_index]
-            offsets = inputs["offset_mapping"][feature_index]
-
-            start_indexes = np.argsort(start_logit)[-1 : -n_best - 1 : -1].tolist()
-            end_indexes = np.argsort(end_logit)[-1 : -n_best - 1 : -1].tolist()
-            for start_index in start_indexes:
-                for end_index in end_indexes:
-                    # Skip answers that are not fully in the context
-                    if offsets[start_index] is None or offsets[end_index] is None:
-                        continue
-                    # Skip answers with a length that is either < 0 or > max_answer_length.
-                    if (
-                        end_index < start_index
-                        or end_index - start_index + 1 > max_answer_length
-                    ):
-                        continue
-
-                    answers.append(
-                        {
-                            "text": context[
-                                offsets[start_index][0] : offsets[end_index][1]
-                            ],
-                            "logit_score": start_logit[start_index]
-                            + end_logit[end_index],
-                        }
-                    )
-
-        best_answer = max(answers, key=lambda x: x["logit_score"])
-        predicted_answers.append(
-            {"id": example_id, "prediction_text": best_answer["text"]}
-        )

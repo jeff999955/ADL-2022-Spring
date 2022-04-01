@@ -1,8 +1,13 @@
 import os
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
+
 import torch
+import wandb
+from accelerate import Accelerator
 from torch import nn
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 from transformers import (
     AdamW,
     AutoConfig,
@@ -10,17 +15,10 @@ from transformers import (
     BertConfig,
     get_cosine_schedule_with_warmup,
 )
+
 from dataset import QuestionAnsweringDataset
-from torch.utils.data import DataLoader
-
-from accelerate import Accelerator
-
-from tqdm import tqdm
-
-from utils import same_seeds
 from model import QuestionAnsweringModel
-
-import wandb
+from utils import same_seeds
 
 log_step = 1
 

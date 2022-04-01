@@ -3,14 +3,18 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 import torch
+import wandb
 from accelerate import Accelerator
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import (AutoConfig, AutoTokenizer, BertConfig,
-                          get_cosine_schedule_with_warmup)
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    BertConfig,
+    get_cosine_schedule_with_warmup,
+)
 
-import wandb
 from dataset import MultipleChoiceDataset
 from model import MultipleChoiceModel
 from utils import same_seeds
