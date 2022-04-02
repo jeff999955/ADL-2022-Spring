@@ -89,7 +89,7 @@ def main(args):
     accelerator = Accelerator(fp16=True)
 
     ckpt = torch.load(os.path.join(args.mc_ckpt))
-    namae = ckpt["name"]
+    namae = './stuff'
     config = AutoConfig.from_pretrained(namae)
     tokenizer = AutoTokenizer.from_pretrained(
         namae, config=config, model_max_length=args.max_len, use_fast=True
@@ -106,15 +106,10 @@ def main(args):
     model, test_loader = accelerator.prepare(model, test_loader)
     relevant = mc_predict(test_loader, model)
 
-    del ckpt, config, tokenizer, model, test_loader
+    del ckpt, model, test_loader
     torch.cuda.empty_cache()
 
     ckpt = torch.load(os.path.join(args.qa_ckpt))
-    namae = ckpt["name"]
-    config = AutoConfig.from_pretrained(namae)
-    tokenizer = AutoTokenizer.from_pretrained(
-        namae, config=config, model_max_length=args.max_len, use_fast=True
-    )
     model = QuestionAnsweringModel(args, config, ckpt["name"])
     model.load_state_dict(ckpt["model"])
     test_set = QuestionAnsweringDataset(args, tokenizer, mode="test", relevant=relevant)
