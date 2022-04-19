@@ -64,15 +64,15 @@ def parse_args():
     parser.add_argument("--max_answer_len", type=int, default = 64)
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--wd", type=float, default=1e-6)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--wd", type=float, default=1e-2)
     parser.add_argument("--scheduler", type=str, default="cosine")
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=8)
 
     # training
-    parser.add_argument("--num_epoch", type=int, default=5)
+    parser.add_argument("--num_epoch", type=int, default=10)
     parser.add_argument("--accu_step", type=int, default=8)
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
@@ -124,6 +124,9 @@ def main(args):
     n_train = total - n_warm
     scheduler = get_scheduler(args.scheduler,optimizer, num_warmup_steps = n_warm, num_training_steps = n_train)
 
+    if args.wandb:
+        wandb.watch(model)
+
     best_score = 0
     best_loss = np.inf
     for epoch in range(args.num_epoch):
@@ -131,7 +134,6 @@ def main(args):
         # Training
         train_loss = []
         model.train()
-        """
         for step, batch in enumerate(tqdm(train_loader)):
             outputs = model(**batch)
             loss = outputs.loss
@@ -145,7 +147,6 @@ def main(args):
                     scheduler.step()
                 optimizer.zero_grad()
         train_loss = np.mean(train_loss)
-        """
         print(f"Train Loss: {np.mean(train_loss):.4f}")
         # Evaluation
         if args.validate:
@@ -189,14 +190,19 @@ def main(args):
                     all_preds += decoded_preds
                     all_labels += decoded_labels
 
-            rogue_score = get_rouge(preds, labels)
-            valid_r1 = rogue_score['rogue-1']['f']
-            valid_r2 = rogue_score['rogue-2']['f']
-            valid_rL = rogue_score['rogue-l']['f']
+            rouge_score = get_rouge(all_preds, all_labels)
+            print(rouge_score)
+            valid_r1 = rouge_score['rouge-1']['f']
+            valid_r2 = rouge_score['rouge-2']['f']
+            valid_rL = rouge_score['rouge-l']['f']
             mean_score = np.mean([valid_r1, valid_r2, valid_rL])
 
-            print(f"Valid Loss: {np.mean(valid_loss):.4f}")
-            print(f"rogue_r1: {valid_r1:.4f}\nrogue_r2: {valid_r2:.4f}\nrogue_rL: {valid_rL:.4f}")
+            valid_loss = np.mean(valid_loss)
+
+            print(f"Valid Loss: {valid_loss:.4f}")
+            print(f"rouge_r1: {valid_r1:.4f}\nrouge_r2: {valid_r2:.4f}\nrouge_rL: {valid_rL:.4f}")
+            if args.wandb:
+                wandb.log({'Train Loss': train_loss, "Validation Loss": valid_loss, 'rouge r1': valid_r1, 'rouge r2': valid_r2, 'rouge rL': valid_rL})
             if mean_score > best_score:
                 unwrapped_model = accelerator.unwrap_model(model)
                 unwrapped_model.save_pretrained(args.ckpt_dir, save_function=accelerator.save)
