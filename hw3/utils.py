@@ -16,11 +16,13 @@ def same_seeds(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-def preprocess_function(tokenizer, args):
+def preprocess_function(tokenizer, args, mode = "train"):
     def __implementation__(examples):
         model_inputs = tokenizer(
             examples["maintext"], max_length=args.max_context_len, padding = "max_length", truncation=True
         )
+        if mode == "test":
+            return model_inputs
         with tokenizer.as_target_tokenizer():
             labels = tokenizer(
                 examples["title"], max_length=args.max_answer_len, padding = "max_length", truncation=True
@@ -65,3 +67,4 @@ def get_config(args):
         "top_p": args.top_p,
         "temperature": args.temperature
     }
+

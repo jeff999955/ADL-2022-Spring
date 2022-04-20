@@ -148,7 +148,7 @@ def main(args):
                     scheduler.step()
                 optimizer.zero_grad()
         train_loss = np.mean(train_loss)
-        print(f"Train Loss: {np.mean(train_loss):.4f}")
+        print(f"Train Loss: {train_loss:.4f}")
         # Evaluation
         if args.validate:
             model.eval()
