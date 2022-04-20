@@ -62,7 +62,7 @@ def parse_args():
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--from_scratch", action="store_true")
-    parser.add_argument("--validate", type=bool, default=True)
+    parser.add_argument("--validate", action='store_true')
 
     args = parser.parse_args()
     return args
@@ -88,6 +88,8 @@ def main(args):
     )
     if args.validate:
         dataset = tokenized_datasets["train"].train_test_split(0.1, shuffle=False)
+    else:
+        dataset = tokenized_datasets
     print(dataset)
 
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
@@ -107,9 +109,15 @@ def main(args):
         )
 
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    model, optimizer, train_loader, valid_loader = accelerator.prepare(
-        model, optimizer, train_loader, valid_loader
-    )
+    if args.validate:
+        model, optimizer, train_loader, valid_loader = accelerator.prepare(
+            model, optimizer, train_loader, valid_loader
+        )
+    else:
+        model, optimizer, train_loader = accelerator.prepare(
+            model, optimizer, train_loader
+        )
+
     total = len(train_loader) * args.num_epoch
     n_warm = int(0.05 * total)
     n_train = total - n_warm
