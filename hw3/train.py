@@ -1,4 +1,3 @@
-
 import os
 from argparse import ArgumentParser
 from pathlib import Path
@@ -9,8 +8,13 @@ from torch.optim import AdamW
 
 import numpy as np
 
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, DataCollatorForSeq2Seq, get_scheduler
-from utils import same_seeds
+from transformers import (
+    AutoModelForSeq2SeqLM,
+    AutoTokenizer,
+    DataCollatorForSeq2Seq,
+    get_scheduler,
+)
+
 from datasets import load_dataset
 from tqdm.auto import tqdm
 from accelerate import Accelerator
@@ -18,27 +22,8 @@ import wandb
 
 from tw_rouge import get_rouge
 
+from utils import *
 
-def preprocess_function(tokenizer, args):
-    def __implementation__(examples):
-        model_inputs = tokenizer(
-            examples["maintext"], max_length=args.max_context_len, padding = "max_length", truncation=True
-        )
-        with tokenizer.as_target_tokenizer():
-            labels = tokenizer(
-                examples["title"], max_length=args.max_answer_len, padding = "max_length", truncation=True
-            )
-
-        model_inputs["labels"] = labels["input_ids"]
-        return model_inputs
-    return __implementation__
-
-def postprocess_text(preds, labels):
-    preds = [pred.strip() + '\n' for pred in preds]
-    labels = [label.strip() + '\n' for label in labels]
-
-    return preds, labels
-    
 
 def parse_args():
     parser = ArgumentParser()
@@ -49,7 +34,7 @@ def parse_args():
         help="Directory to the dataset.",
         default="./data",
     )
-    
+
     parser.add_argument(
         "--ckpt_dir",
         type=Path,
@@ -61,7 +46,7 @@ def parse_args():
 
     # data
     parser.add_argument("--max_context_len", type=int, default=256)
-    parser.add_argument("--max_answer_len", type=int, default = 64)
+    parser.add_argument("--max_answer_len", type=int, default=64)
 
     # optimizer
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -82,38 +67,44 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 def main(args):
     same_seeds(args.seed)
     accelerator = Accelerator()
     print(accelerator.device)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, use_fast = True, do_lower_case = True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name, use_fast=True, do_lower_case=True
+    )
     model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
 
-    raw_dataset = load_dataset("json", data_files={"train": os.path.join(args.data_dir, "train.jsonl")})
-    cols = raw_dataset['train'].column_names
-    train_prep = preprocess_function(tokenizer=tokenizer, args = args)
-    tokenized_datasets = raw_dataset.map(train_prep, batched = True, keep_in_memory=True, num_proc=8, remove_columns = cols)
+    raw_dataset = load_dataset(
+        "json", data_files={"train": os.path.join(args.data_dir, "train.jsonl")}
+    )
+    cols = raw_dataset["train"].column_names
+    train_prep = preprocess_function(tokenizer=tokenizer, args=args)
+    tokenized_datasets = raw_dataset.map(
+        train_prep, batched=True, keep_in_memory=True, num_proc=8, remove_columns=cols
+    )
     if args.validate:
-        dataset = tokenized_datasets['train'].train_test_split(0.1, shuffle = False)
+        dataset = tokenized_datasets["train"].train_test_split(0.1, shuffle=False)
     print(dataset)
 
-    data_collator = DataCollatorForSeq2Seq(tokenizer, model = model)
+    data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
     train_loader = DataLoader(
         dataset["train"],
         shuffle=True,
         collate_fn=data_collator,
         batch_size=args.batch_size,
-        pin_memory=True
+        pin_memory=True,
     )
     if args.validate:
         valid_loader = DataLoader(
             dataset["test"],
             collate_fn=data_collator,
             batch_size=args.batch_size,
-            pin_memory=True
+            pin_memory=True,
         )
-
 
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     model, optimizer, train_loader, valid_loader = accelerator.prepare(
@@ -122,7 +113,9 @@ def main(args):
     total = len(train_loader) * args.num_epoch
     n_warm = int(0.05 * total)
     n_train = total - n_warm
-    scheduler = get_scheduler(args.scheduler,optimizer, num_warmup_steps = n_warm, num_training_steps = n_train)
+    scheduler = get_scheduler(
+        args.scheduler, optimizer, num_warmup_steps=n_warm, num_training_steps=n_train
+    )
 
     if args.wandb:
         wandb.watch(model)
@@ -159,7 +152,7 @@ def main(args):
                     generated_tokens = accelerator.unwrap_model(model).generate(
                         batch["input_ids"],
                         attention_mask=batch["attention_mask"],
-                        max_length = args.max_answer_len
+                        max_length=args.max_answer_len,
                     )
 
                     generated_tokens = accelerator.pad_across_processes(
@@ -172,7 +165,9 @@ def main(args):
                         batch["labels"], dim=1, pad_index=tokenizer.pad_token_id
                     )
 
-                    generated_tokens = accelerator.gather(generated_tokens).cpu().numpy()
+                    generated_tokens = (
+                        accelerator.gather(generated_tokens).cpu().numpy()
+                    )
                     labels = accelerator.gather(labels).cpu().numpy()
 
                     # Replace -100 in the labels as we can't decode them
@@ -182,7 +177,9 @@ def main(args):
                     decoded_preds = tokenizer.batch_decode(
                         generated_tokens, skip_special_tokens=True
                     )
-                    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+                    decoded_labels = tokenizer.batch_decode(
+                        labels, skip_special_tokens=True
+                    )
 
                     decoded_preds, decoded_labels = postprocess_text(
                         decoded_preds, decoded_labels
@@ -192,28 +189,43 @@ def main(args):
 
             rouge_score = get_rouge(all_preds, all_labels)
             print(rouge_score)
-            valid_r1 = rouge_score['rouge-1']['f']
-            valid_r2 = rouge_score['rouge-2']['f']
-            valid_rL = rouge_score['rouge-l']['f']
+            valid_r1 = rouge_score["rouge-1"]["f"]
+            valid_r2 = rouge_score["rouge-2"]["f"]
+            valid_rL = rouge_score["rouge-l"]["f"]
             mean_score = np.mean([valid_r1, valid_r2, valid_rL])
 
             valid_loss = np.mean(valid_loss)
 
             print(f"Valid Loss: {valid_loss:.4f}")
-            print(f"rouge_r1: {valid_r1:.4f}\nrouge_r2: {valid_r2:.4f}\nrouge_rL: {valid_rL:.4f}")
+            print(
+                f"rouge_r1: {valid_r1:.4f}\nrouge_r2: {valid_r2:.4f}\nrouge_rL: {valid_rL:.4f}"
+            )
             if args.wandb:
-                wandb.log({'Train Loss': train_loss, "Validation Loss": valid_loss, 'rouge r1': valid_r1, 'rouge r2': valid_r2, 'rouge rL': valid_rL})
+                wandb.log(
+                    {
+                        "Train Loss": train_loss,
+                        "Validation Loss": valid_loss,
+                        "rouge r1": valid_r1,
+                        "rouge r2": valid_r2,
+                        "rouge rL": valid_rL,
+                    }
+                )
             if mean_score > best_score:
                 unwrapped_model = accelerator.unwrap_model(model)
-                unwrapped_model.save_pretrained(args.ckpt_dir, save_function=accelerator.save)
+                unwrapped_model.save_pretrained(
+                    args.ckpt_dir, save_function=accelerator.save
+                )
                 tokenizer.save_pretrained(args.ckpt_dir)
         else:
             if train_loss < best_loss:
                 best_loss = train_loss
                 unwrapped_model = accelerator.unwrap_model(model)
-                unwrapped_model.save_pretrained(args.ckpt_dir, save_function=accelerator.save)
+                unwrapped_model.save_pretrained(
+                    args.ckpt_dir, save_function=accelerator.save
+                )
                 tokenizer.save_pretrained(args.ckpt_dir)
-            
+
+
 if __name__ == "__main__":
     args = parse_args()
     args.ckpt_dir.mkdir(parents=True, exist_ok=True)
