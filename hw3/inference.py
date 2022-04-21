@@ -51,9 +51,9 @@ def parse_args():
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--strategy", type=str, choices=STRAT, default=STRAT[0])
+    parser.add_argument("--strategy", type=str, choices=STRAT)
 
-    parser.add_argument("--do_sample", type=bool, default=False)
+    parser.add_argument("--do_sample", action="store_true", default=False)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--top_k", type=int, default=50)
     parser.add_argument("--top_p", type=float, default=1.0)
@@ -97,6 +97,7 @@ def main(args):
                 batch["input_ids"],
                 attention_mask=batch["attention_mask"],
                 max_length=args.max_answer_len,
+                **config
             )
 
             generated_tokens = accelerator.pad_across_processes(

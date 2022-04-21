@@ -9,6 +9,7 @@ from torch.optim import AdamW
 import numpy as np
 
 from transformers import (
+    AutoConfig,
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorForSeq2Seq,
@@ -70,13 +71,16 @@ def parse_args():
 
 def main(args):
     same_seeds(args.seed)
-    accelerator = Accelerator()
+    accelerator = Accelerator(fp16 = True)
     print(accelerator.device)
-
+    
+    config = AutoConfig.from_pretrained(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, use_fast=True, do_lower_case=True
     )
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, config = config)
+
+    model.resize_token_embeddings(len(tokenizer))
 
     raw_dataset = load_dataset(
         "json", data_files={"train": os.path.join(args.data_dir, "train.jsonl")}
