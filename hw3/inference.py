@@ -25,6 +25,8 @@ import wandb
 from tw_rouge import get_rouge
 from utils import *
 
+from time import time
+import datetime
 
 def parse_args():
     parser = ArgumentParser()
@@ -50,7 +52,7 @@ def parse_args():
     parser.add_argument("--max_answer_len", type=int, default=64)
 
     # data loader
-    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--strategy", type=str, choices=STRAT)
 
     parser.add_argument("--do_sample", action="store_true", default=False)
@@ -66,7 +68,7 @@ def parse_args():
 def main(args):
     same_seeds(args.seed)
     accelerator = Accelerator()
-    print(args)
+    # print(args)
     config = get_config(args)
     print(config)
     tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir)
@@ -88,6 +90,7 @@ def main(args):
     )
 
     model, test_loader = accelerator.prepare(model, test_loader)
+    start_time = time()
     print(accelerator.device)
     model.eval()
     preds = []
@@ -107,7 +110,6 @@ def main(args):
             generated_tokens = generated_tokens.cpu().numpy()
 
             if isinstance(generated_tokens, tuple):
-                print(f"{generated_tokens=}")
                 generated_tokens = generated_tokens[0]
             decoded_preds = tokenizer.batch_decode(
                 generated_tokens, skip_special_tokens=True
@@ -118,6 +120,9 @@ def main(args):
             )
 
             preds += decoded_preds
+    end_time = time()
+    s_time = str(datetime.timedelta(seconds=round(end_time - start_time)))
+    print(f"{s_time} &", end = "")
 
     with open(args.out_json, 'w') as f:
         for _id, pred in zip(ids, preds):

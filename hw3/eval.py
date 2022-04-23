@@ -20,7 +20,9 @@ def main(args):
     refs = [refs[key] for key in keys]
     preds = [preds[key] for key in keys]
 
-    print(json.dumps(get_rouge(preds, refs), indent=2))
+    result = get_rouge(preds, refs)
+    r1, r2, rL = result['rouge-1']['f'],result['rouge-2']['f'],result['rouge-l']['f']
+    print(f"{r1:.4f} & {r2:.4f} & {rL:.4f}")
 
 
 if __name__ == '__main__':

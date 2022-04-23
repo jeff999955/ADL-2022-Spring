@@ -125,9 +125,9 @@ def main(args):
     total = len(train_loader) * args.num_epoch
     n_warm = int(0.05 * total)
     n_train = total - n_warm
-    scheduler = get_scheduler(
-        args.scheduler, optimizer, num_warmup_steps=n_warm, num_training_steps=n_train
-    )
+    scheduler = None # get_scheduler(
+        # args.scheduler, optimizer, num_warmup_steps=n_warm, num_training_steps=n_train
+    # )
 
     if args.wandb:
         wandb.watch(model)
