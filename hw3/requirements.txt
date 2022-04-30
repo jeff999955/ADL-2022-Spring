@@ -1,0 +1,11 @@
+accelerate
+ckiptagger
+datasets
+numpy
+pynvml
+rouge
+setuptools
+torch
+tqdm
+transformers
+wandb
