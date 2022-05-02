@@ -27,6 +27,70 @@ from tw_rouge import get_rouge
 from utils import *
 
 
+def rl_loss(args, accelerator, tokenizer, model, batch, logits):
+    generate_tokens = accelerator.unwrap_model(model).generate(
+        batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+        max_length=args.max_answer_len,
+    )
+    generate_tokens = accelerator.pad_across_processes(
+        generate_tokens, dim=1, pad_index=tokenizer.pad_token_id
+    )
+    generate_tokens = accelerator.gather(generate_tokens)
+    generate_preds = tokenizer.batch_decode(
+        generate_tokens.cpu().numpy(), skip_special_tokens=True
+    )
+
+    sample_tokens = accelerator.unwrap_model(model).generate(
+        batch["input_ids"],
+        attention_mask=batch["attention_mask"],
+        max_length=args.max_answer_len,
+        do_sample=True,
+        top_k=5,
+        top_p=0.1,
+    )
+    sample_tokens = accelerator.pad_across_processes(
+        sample_tokens, dim=1, pad_index=tokenizer.pad_token_id
+    )
+    sample_tokens = accelerator.gather(sample_tokens)
+    sample_preds = tokenizer.batch_decode(
+        sample_tokens.cpu().numpy(), skip_special_tokens=True
+    )
+
+    labels = batch["labels"]
+    labels = accelerator.pad_across_processes(
+        batch["labels"], dim=1, pad_index=tokenizer.pad_token_id
+    )
+    labels = accelerator.gather(labels).cpu().numpy()
+    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+    labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+    generate_preds, labels = postprocess_text(generate_preds, labels)
+    sample_preds, _ = postprocess_text(sample_preds, [])
+    ws = (
+        lambda scores: scores["rouge-1"]["f"] * 0.3
+        + scores["rouge-2"]["f"] * 0.5
+        + scores["rouge-l"]["f"] * 0.2
+    )
+    generate_scores = get_rouge(generate_preds, labels, avg=False)
+    generate_rewards = torch.tensor([ws(scores) for scores in generate_scores])
+    sample_scores = get_rouge(sample_preds, labels, avg=False)
+    sample_rewards = torch.tensor([ws(scores) for scores in sample_scores])
+
+    criterion = torch.nn.CrossEntropyLoss()
+    N, Lg, Ls, C = logits.shape[0], generate_tokens.shape[1], sample_tokens.shape[1], logits.shape[-1]
+    loss_input = logits[:, : Ls, :].reshape(N * Ls, C)
+    sample_probs = criterion(loss_input, sample_tokens.view(-1))
+    # print(sample_probs)
+    # print(sample_probs.shape)
+    diff_rewards = (sample_rewards - generate_rewards).to(
+        accelerator.device
+    )
+    rl_loss = (diff_rewards * sample_probs).mean()
+
+    return rl_loss
+
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--seed", type=int, default=5920)
@@ -64,7 +128,7 @@ def parse_args():
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--from_scratch", action="store_true")
-    parser.add_argument("--validate", action='store_true')
+    parser.add_argument("--validate", action="store_true")
 
     args = parser.parse_args()
     return args
@@ -72,9 +136,9 @@ def parse_args():
 
 def main(args):
     same_seeds(args.seed)
-    accelerator = Accelerator(fp16 = True)
+    accelerator = Accelerator(fp16=True)
     print(accelerator.device)
-    
+
     tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir)
     model = AutoModelForSeq2SeqLM.from_pretrained(args.ckpt_dir)
 
@@ -99,9 +163,7 @@ def main(args):
     )
 
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
-    model, optimizer, train_loader = accelerator.prepare(
-        model, optimizer, train_loader
-    )
+    model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
 
     if args.wandb:
         wandb.watch(model)
@@ -109,68 +171,18 @@ def main(args):
     for epoch in range(args.num_epoch):
         print(f"epoch {epoch}:")
         train_loss = []
-        actions, log_probs = [[] for _ in range(args.batch_size)], [[] for _ in range(args.batch_size)]
 
         model.train()
         for step, batch in enumerate(tqdm(train_loader)):
             outputs = model(**batch)
-            loss = outputs.loss
-            logits = outputs.logits
-            actions, log_probs = [[] for _ in range(args.batch_size)], [[] for _ in range(args.batch_size)]
-            for idx, logit in enumerate(logits):
-                for word in logit:
-                    d = Categorical(logits = word)
-                    action = d.sample()
-                    actions[idx].append(action)
-                    log_probs[idx].append(d.log_prob(action))
-
-            # for idx in range(len(actions)):
-            #     print(idx, len(actions[idx]))
-            # for idx in range(len(log_probs)):
-            #     print(idx, len(log_probs[idx]))
-            actions = torch.tensor(actions)
-            log_probs = torch.tensor(log_probs).to(accelerator.device)
-
-            print(f"{actions.shape=},\n {batch['labels'].shape=}")
-            labels = accelerator.pad_across_processes(
-                batch["labels"], dim=1, pad_index=tokenizer.pad_token_id
-            )
-            labels = accelerator.gather(labels).cpu().numpy()
-            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-            decoded_preds = tokenizer.batch_decode(
-                actions, skip_special_tokens=True
-            )
-            decoded_labels = tokenizer.batch_decode(
-                labels, skip_special_tokens=True
-            )
-            decoded_preds, decoded_labels = postprocess_text(
-                decoded_preds, decoded_labels
-            )
-            rouge_score = get_rouge(decoded_preds, decoded_labels, avg = False)
-            reward = []
-            for score in rouge_score:
-                r1 = score["rouge-1"]["f"]
-                r2 = score["rouge-2"]["f"]
-                rL = score["rouge-l"]["f"]
-                reward.append(r1 * 0.3 + r2 * 0.5 + rL * 0.2)
-            gamma = 0.99
-            reward = torch.tensor(reward).to(accelerator.device)
-            for i in range(1, len(reward)):
-                reward[i] += reward[i - 1] + gamma
-            reward = (reward - torch.mean(reward)) / (torch.std(reward) + 1e-9)
-
-
-            loss = torch.matmul(reward, log_probs).mean()
-            loss.requires_grad = True
+            loss = rl_loss(args, accelerator, tokenizer, model, batch, outputs.logits)
             print(loss)
-
-
-            loss = loss / args.accu_step
             train_loss.append(loss.item())
+            loss = loss / args.accu_step
 
+            accelerator.backward(loss)
             if ((step + 1) % args.accu_step == 0) or (step == len(train_loader) - 1):
                 optimizer.step()
-                accelerator.backward(loss)
                 optimizer.zero_grad()
         train_loss = np.mean(train_loss)
         print(f"train loss: {train_loss:.4f}")
