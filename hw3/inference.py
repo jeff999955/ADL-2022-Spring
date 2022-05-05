@@ -28,6 +28,7 @@ from utils import *
 from time import time
 import datetime
 
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument("--seed", type=int, default=5920)
@@ -73,12 +74,13 @@ def main(args):
     print(config)
     tokenizer = AutoTokenizer.from_pretrained(args.ckpt_dir)
     model = AutoModelForSeq2SeqLM.from_pretrained(args.ckpt_dir)
-    raw_dataset = load_dataset("json", data_files = {"test": args.test_file})
-    prep = preprocess_function(tokenizer=tokenizer, args=args)
+    raw_dataset = load_dataset("json", data_files={"test": args.test_file})
+    prep = preprocess_function(tokenizer=tokenizer, args=args, mode="test")
     cols = raw_dataset["test"].column_names
     ids = raw_dataset["test"]["id"]
-    dataset = raw_dataset.map(prep, batched=True, keep_in_memory=True, num_proc=8, remove_columns=cols)
-
+    dataset = raw_dataset.map(
+        prep, batched=True, keep_in_memory=True, num_proc=8, remove_columns=cols
+    )
 
     data_collator = DataCollatorForSeq2Seq(tokenizer, model=model)
 
@@ -100,7 +102,7 @@ def main(args):
                 batch["input_ids"],
                 attention_mask=batch["attention_mask"],
                 max_length=args.max_answer_len,
-                **config
+                **config,
             )
 
             generated_tokens = accelerator.pad_across_processes(
@@ -115,20 +117,18 @@ def main(args):
                 generated_tokens, skip_special_tokens=True
             )
 
-            decoded_preds, _ = postprocess_text(
-                decoded_preds, []
-            )
+            decoded_preds, _ = postprocess_text(decoded_preds, [])
 
             preds += decoded_preds
     end_time = time()
     s_time = str(datetime.timedelta(seconds=round(end_time - start_time)))
-    print(f"{s_time} &", end = "")
+    print(f"{s_time} &", end="")
 
-    with open(args.out_json, 'w') as f:
+    with open(args.out_json, "w") as f:
         for _id, pred in zip(ids, preds):
-            print(json.dumps({"title": pred, "id": _id}), file = f)
+            print(json.dumps({"title": pred, "id": _id}), file=f)
+
 
 if __name__ == "__main__":
     args = parse_args()
     main(args)
-

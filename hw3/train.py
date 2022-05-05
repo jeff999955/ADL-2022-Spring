@@ -63,7 +63,7 @@ def parse_args():
     parser.add_argument("--prefix", type=str, default="")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--from_scratch", action="store_true")
-    parser.add_argument("--validate", action='store_true')
+    parser.add_argument("--validate", action="store_true")
 
     args = parser.parse_args()
     return args
@@ -71,14 +71,14 @@ def parse_args():
 
 def main(args):
     same_seeds(args.seed)
-    accelerator = Accelerator(fp16 = True)
+    accelerator = Accelerator(fp16=True)
     print(accelerator.device)
-    
+
     config = AutoConfig.from_pretrained(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_name, use_fast=True, do_lower_case=True
     )
-    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, config = config)
+    model = AutoModelForSeq2SeqLM.from_pretrained(args.model_name, config=config)
 
     model.resize_token_embeddings(len(tokenizer))
 
@@ -125,8 +125,8 @@ def main(args):
     total = len(train_loader) * args.num_epoch
     n_warm = int(0.05 * total)
     n_train = total - n_warm
-    scheduler = None # get_scheduler(
-        # args.scheduler, optimizer, num_warmup_steps=n_warm, num_training_steps=n_train
+    scheduler = None  # get_scheduler(
+    # args.scheduler, optimizer, num_warmup_steps=n_warm, num_training_steps=n_train
     # )
 
     if args.wandb:

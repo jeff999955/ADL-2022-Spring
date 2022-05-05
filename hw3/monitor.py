@@ -17,5 +17,3 @@ while child.poll() is None:
             usage = max(usage, (process.usedGpuMemory // 1048576))
 
 print(usage)
-
-
