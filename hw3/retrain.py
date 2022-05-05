@@ -78,14 +78,17 @@ def rl_loss(args, accelerator, tokenizer, model, batch, logits):
     sample_rewards = torch.tensor([ws(scores) for scores in sample_scores])
 
     criterion = torch.nn.CrossEntropyLoss()
-    N, Lg, Ls, C = logits.shape[0], generate_tokens.shape[1], sample_tokens.shape[1], logits.shape[-1]
-    loss_input = logits[:, : Ls, :].reshape(N * Ls, C)
+    N, Lg, Ls, C = (
+        logits.shape[0],
+        generate_tokens.shape[1],
+        sample_tokens.shape[1],
+        logits.shape[-1],
+    )
+    loss_input = logits[:, :Ls, :].reshape(N * Ls, C)
     sample_probs = criterion(loss_input, sample_tokens.view(-1))
     # print(sample_probs)
     # print(sample_probs.shape)
-    diff_rewards = (sample_rewards - generate_rewards).to(
-        accelerator.device
-    )
+    diff_rewards = (sample_rewards - generate_rewards).to(accelerator.device)
     rl_loss = (diff_rewards * sample_probs).mean()
 
     return rl_loss
