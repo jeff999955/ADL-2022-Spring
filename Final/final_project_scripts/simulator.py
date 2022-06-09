@@ -12,11 +12,9 @@ from transformers import (
     BlenderbotTokenizer,
     pipeline
 )
+
+from template import template_response
 import spacy
-
-from template import get_transition, init_template, template_response
-from time import time
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -91,6 +89,9 @@ if __name__ == "__main__":
     with open("keywords.json") as f:
         keywords = json.load(f)
 
+    with open("keywords.json") as f:
+        keywords = json.load(f)
+
     nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
     # lemmatize words in keywords
     for key, val in keywords.items():
@@ -104,6 +105,8 @@ if __name__ == "__main__":
             else:
                 one_lemma.append(split[0])
             keywords[key] = [one_lemma, multi_lemma]
+
+    print(keywords)
 
     # load your bot
     bot = AutoModelForSeq2SeqLM.from_pretrained(args.model_name_or_path).to(device)
@@ -121,9 +124,6 @@ if __name__ == "__main__":
             "previous_utterance",
         ],
     )
-
-    first_transition, real_transition = init_template()
-    start = time()
 
     if args.interactive_mode:
         for _ in range(args.num_chats):
@@ -162,12 +162,12 @@ if __name__ == "__main__":
 
             detected_intention = False
             threshold = 0.8
-            chit_chat_round = 2
-            template_round = 0
+            chit_chat_round = 1
             use_template = True
             hit = False
 
-            for _ in range(5):
+            labels = random.choice(candidate_labels)
+            for round in range(5):
                 inputs = simulator_tokenizer(
                     [
                         "</s> <s>".join(
@@ -197,31 +197,23 @@ if __name__ == "__main__":
                     if len(intersection) > 0:
                         hit = True
                         break
-                if hit: break
+                if round and hit: break
 
-                for keyword in keywords:
-                    if keyword in text: 
-                        print(keyword, text)
-                        hit = True
-                        break
-                if hit: break
-
+                inputs = bot_tokenizer(
+                    ["</s> <s>".join(dialog[-3:])], return_tensors="pt", truncation=True
+                ).to(device)
+                reply_ids = bot.generate(**inputs)
+                text = bot_tokenizer.batch_decode(reply_ids, skip_special_tokens=True)[
+                    0
+                ].strip()
                 # detected_intention = score > threshold
                 if not chit_chat_round:
-                    labels, score = intent_classification(text)
+                    # labels, score = intent_classification(text)
                     if use_template:
-                        text = get_transition(first_transition, real_transition, 'hotel', template_round)
-                        template_round += 1
+                        text += ' ' + template_response[labels]
                     else:
                         raise NotImplementedError("Currently not available")
                 else:
-                    inputs = bot_tokenizer(
-                        ["</s> <s>".join(dialog[-3:])], return_tensors="pt", truncation=True
-                    ).to(device)
-                    reply_ids = bot.generate(**inputs)
-                    text = bot_tokenizer.batch_decode(reply_ids, skip_special_tokens=True)[
-                        0
-                    ].strip()
                     chit_chat_round -= 1
                 
                 dialog.append(text)
@@ -235,5 +227,3 @@ if __name__ == "__main__":
         with open(args.output, "w") as f:
             for idx, dialog in enumerate(output):
                 f.write(json.dumps({"id": idx, "dialog": dialog}) + "\n")
-    end = time()
-    print(f"\033[0;32;49m {'required time: ': ^11}{end - start} \033[0;0m")

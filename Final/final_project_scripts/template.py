@@ -2,13 +2,14 @@ import collections
 import random
 
 template_response = {
-    "restaurant": "By the way, are you hungry? What would you like for dinner?",
-    'hotel': 'By the way, have you lived in a hotel? Did you eat breakfast?',
-    'movie': 'By the way, do you want to find movies by genre and optionally director?',
-    'song': 'By the way, what songs do you like? Do you want to search for a song?',
-    'transportation': 'By the way, what is your favorite transportation?',
-    'attraction': 'By the way, do you want to browse attractions in a given city?'
+    "restaurant": "Besides, I'm so damn hungry now, what would you recommend as dinner or tomorrow's breakfast?",
+    'hotel': "I am planning on traveling. How is the last hotel you've stayed in? How do you usually book a room?",
+    'movie': 'On the other hand, do you wanna watch movie together?',
+    'transportation': 'By the way, what is you typical transportation method?', 
+    'attraction': 'See. Our city is beautiful, right? Do you want to want to visit some attractions?',  
+    'song': 'I am actually curious, what genre of music do you prefer? Do you have a favorite band?',
 }
+# this achieved 0.977 hit rate
 
 def init_template():
     template_response = {
