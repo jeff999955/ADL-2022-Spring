@@ -12,8 +12,10 @@ from transformers import (
     BlenderbotTokenizer,
     pipeline
 )
+import spacy
 
-from template import template_response
+from template import get_transition, init_template, template_response
+from time import time
 
 
 def parse_args():
@@ -89,9 +91,19 @@ if __name__ == "__main__":
     with open("keywords.json") as f:
         keywords = json.load(f)
 
-    keywords = set([val for key in keywords for val in keywords[key]])
-
-    print(keywords)
+    nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"])
+    # lemmatize words in keywords
+    for key, val in keywords.items():
+        # separate words by its length (one, others)
+        one_lemma = []
+        multi_lemma = []
+        for word in val:
+            split = [token.lemma_ for token in nlp(word)]
+            if len(split) >= 2:
+                multi_lemma.append(" ".join(split))
+            else:
+                one_lemma.append(split[0])
+            keywords[key] = [one_lemma, multi_lemma]
 
     # load your bot
     bot = AutoModelForSeq2SeqLM.from_pretrained(args.model_name_or_path).to(device)
@@ -109,6 +121,9 @@ if __name__ == "__main__":
             "previous_utterance",
         ],
     )
+
+    first_transition, real_transition = init_template()
+    start = time()
 
     if args.interactive_mode:
         for _ in range(args.num_chats):
@@ -148,6 +163,7 @@ if __name__ == "__main__":
             detected_intention = False
             threshold = 0.8
             chit_chat_round = 2
+            template_round = 0
             use_template = True
             hit = False
 
@@ -169,8 +185,23 @@ if __name__ == "__main__":
                 if not args.disable_output_dialog:
                     print(f"\033[0;32;49m {'simulator: ': ^11}{text} \033[0;0m")
 
+                lemma_utterance = [token.lemma_ for token in nlp(text)]
+                hit = False
+                for key, (one, multi) in keywords.items():
+                    intersection = set(one) & set(lemma_utterance)
+                    # check whether the word, the length is bigger than 2, is in the utterance
+                    for m in multi:
+                        unsplit_utterance = " ".join(lemma_utterance)
+                        if m in unsplit_utterance:
+                            intersection.add(m)
+                    if len(intersection) > 0:
+                        hit = True
+                        break
+                if hit: break
+
                 for keyword in keywords:
                     if keyword in text: 
+                        print(keyword, text)
                         hit = True
                         break
                 if hit: break
@@ -179,7 +210,8 @@ if __name__ == "__main__":
                 if not chit_chat_round:
                     labels, score = intent_classification(text)
                     if use_template:
-                        text = template_response[labels]
+                        text = get_transition(first_transition, real_transition, 'hotel', template_round)
+                        template_round += 1
                     else:
                         raise NotImplementedError("Currently not available")
                 else:
@@ -203,3 +235,5 @@ if __name__ == "__main__":
         with open(args.output, "w") as f:
             for idx, dialog in enumerate(output):
                 f.write(json.dumps({"id": idx, "dialog": dialog}) + "\n")
+    end = time()
+    print(f"\033[0;32;49m {'required time: ': ^11}{end - start} \033[0;0m")
