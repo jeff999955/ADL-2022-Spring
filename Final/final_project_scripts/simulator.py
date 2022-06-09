@@ -10,7 +10,10 @@ from transformers import (
     AutoTokenizer,
     BlenderbotForConditionalGeneration,
     BlenderbotTokenizer,
+    pipeline
 )
+
+from template import template_response
 
 
 def parse_args():
@@ -65,6 +68,14 @@ def preprocess(example):
     return example
 
 
+candidate_labels = ['restaurant', 'hotel', 'movie', 'song', 'transportation', 'attraction']
+
+def intent_classification(sentence, template = "The user's intention is about {}", use_multi_label=False):
+    classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=0)
+    result = classifier(sentence, candidate_labels, hypothesis_template = template, multi_label = use_multi_label)
+    return result['labels'][0], result['scores'][0]
+
+
 if __name__ == "__main__":
     args = parse_args()
     random.seed(args.seed)
@@ -74,6 +85,13 @@ if __name__ == "__main__":
     mname = "facebook/blenderbot-400M-distill"
     simulator = BlenderbotForConditionalGeneration.from_pretrained(mname).to(device)
     simulator_tokenizer = BlenderbotTokenizer.from_pretrained(mname)
+
+    with open("keywords.json") as f:
+        keywords = json.load(f)
+
+    keywords = set([val for key in keywords for val in keywords[key]])
+
+    print(keywords)
 
     # load your bot
     bot = AutoModelForSeq2SeqLM.from_pretrained(args.model_name_or_path).to(device)
@@ -126,6 +144,13 @@ if __name__ == "__main__":
             dialog = []
             if not args.disable_output_dialog:
                 print(f" dialog id: {index}")
+
+            detected_intention = False
+            threshold = 0.8
+            chit_chat_round = 2
+            use_template = True
+            hit = False
+
             for _ in range(5):
                 inputs = simulator_tokenizer(
                     [
@@ -144,14 +169,29 @@ if __name__ == "__main__":
                 if not args.disable_output_dialog:
                     print(f"\033[0;32;49m {'simulator: ': ^11}{text} \033[0;0m")
 
-                # you might need to change this line due to the model you use
-                inputs = bot_tokenizer(
-                    ["</s> <s>".join(dialog[-3:])], return_tensors="pt", truncation=True
-                ).to(device)
-                reply_ids = bot.generate(**inputs)
-                text = bot_tokenizer.batch_decode(reply_ids, skip_special_tokens=True)[
-                    0
-                ].strip()
+                for keyword in keywords:
+                    if keyword in text: 
+                        hit = True
+                        break
+                if hit: break
+
+                # detected_intention = score > threshold
+                if not chit_chat_round:
+                    labels, score = intent_classification(text)
+                    if use_template:
+                        text = template_response[labels]
+                    else:
+                        raise NotImplementedError("Currently not available")
+                else:
+                    inputs = bot_tokenizer(
+                        ["</s> <s>".join(dialog[-3:])], return_tensors="pt", truncation=True
+                    ).to(device)
+                    reply_ids = bot.generate(**inputs)
+                    text = bot_tokenizer.batch_decode(reply_ids, skip_special_tokens=True)[
+                        0
+                    ].strip()
+                    chit_chat_round -= 1
+                
                 dialog.append(text)
                 if not args.disable_output_dialog:
                     print(f"\033[0;33;49m {'bot: ': ^11}{text} \033[0;0m")

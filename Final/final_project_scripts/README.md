@@ -44,7 +44,7 @@ You can use the simulator to:
 
 **WARNING: YOU WOULD NEED TO MODIFY THIS SCRIPT**
 To load your model in this scripts, please 
-1. write/import your model structure (replace `bot = AutoModel...`)
+1. **write/import your model structure (replace `bot = AutoModel...`)**
 2. make sure it can load trained weights correctly
 3. make sure your tokenizer works correctly (replace `bot_tokenizer = AutoTokenizer...`)
 4. make sure your model can generate sentence correctly (around `reply_ids = bot.generate(...`)
